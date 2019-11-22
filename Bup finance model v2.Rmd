@@ -1,0 +1,951 @@
+---
+title: "Bup finance model v2"
+author: "Sanjay Basu"
+date: "11/21/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# install.packages('matrixStats')
+library(matrixStats)
+```
+
+## Matrices for setup
+```{r mat}
+
+iters = 10000
+grossrevvec_yr1 = matrix(0,ncol=16,nrow=iters)
+oppcostvec_yr1 = matrix(0,ncol=16,nrow=iters)
+addcostvec_yr1 = matrix(0,ncol=16,nrow=iters)
+grossrevvec_yrs = matrix(0,ncol=16,nrow=iters)
+oppcostvec_yrs = matrix(0,ncol=16,nrow=iters)
+addcostvec_yrs = matrix(0,ncol=16,nrow=iters)
+
+```
+
+## Simulations
+```{r sims}
+
+# Subscripts _md, _rn, _sh, and _so correspond to:
+# 
+# _md = OBOT-B with physician-led visits
+# _rn = OBOT-B with nurse-led visits
+# _sh = OBOT-B with shared visits
+# _so = OBOT-B with solo provider
+# 
+# Input data and descriptive details of alternative approaches for office-based opioid treatment with buprenorphine (OBOT-B), alternative practice types, costs, and payments. 
+# 
+# Order of visit types within each vector:
+# Initial medical evaluation (99204/G0466)
+# Follow-up medical evaluation, Level 3 (99213/G0467)
+# Follow-up medical evaluation, Level 4 (99214/G0467)
+# Follow-up nursing visit (99211)
+# Behavioral health intake assessment (90791/G0469; combined with initial medical evaluation)
+# Group psychotherapy (90853), twelve patients per group
+# Urine drug screen (80305/G0477)
+
+
+# Visit frequencies 
+# (per patient per year), based on interviews
+visits_obot_md = c(1,15,1,0,1,19,19)
+visits_obot_rn = c(1,1,4,13,1,19,19)
+visits_obot_sh = c(1,18,0,1,1,18,20)
+visits_obot_so = c(1,16,1,0,0,0,18)
+
+set.seed(1)
+for (i in 1:iters)
+{
+
+# No show rate, %
+noshow_md = max(0,rnorm(1,.22,.05))
+noshow_rn = max(0,rnorm(1,.20,.05))
+noshow_sh = max(0,rnorm(1,.25,.05))
+noshow_so = max(0,rnorm(1,.20,.05))
+
+# Staff time, based on interviews
+
+# Physician hours, per patient per year
+mdhours_md = max(0,rnorm(1,4.8,1.2))
+mdhours_rn = max(0,rnorm(1,2.0,0.5))
+mdhours_sh = max(0,rnorm(1,2.9,0.7))
+mdhours_so = max(0,rnorm(1,5.2,1.3))
+
+# Nurse care manager hours, per patient per year
+rnhours_md = max(0,rnorm(1,1.1,0.3))
+rnhours_rn = max(0,rnorm(1,4.0,1.0))
+rnhours_sh = max(0,rnorm(1,4.0,1.0))
+rnhours_so = 0
+
+# Behaviorist hours, per patient per year
+behours_md = max(0,rnorm(1,2.9,0.7))
+behours_rn = max(0,rnorm(1,3.2,0.8))
+behours_sh = max(0,rnorm(1,3.0,0.8))
+behours_so = 0
+
+# Dedicated nurse full-time equivalents, for all patients per year
+rnfte_md = max(0,rnorm(1,0.5,0.1))
+rnfte_rn = max(0,rnorm(1,1.0,0.3))
+rnfte_sh = max(0,rnorm(1,1.0,0.3))
+rnfte_so = 0
+
+# Dedicated behaviorist full-time equivalents, for all patients per year
+befte_md = max(0,rnorm(1,0.1,0.03))
+befte_rn = max(0,rnorm(1,0.1,0.03))
+befte_sh = max(0,rnorm(1,0.3,0.08))
+befte_so = 0
+
+# Year one additional physician hours
+yr1addmd_md = max(0,rnorm(1,16,5))
+yr1addmd_rn = max(0,rnorm(1,16,5))
+yr1addmd_sh = max(0,rnorm(1,16,5))
+yr1addmd_so = max(0,rnorm(1,32,10))
+
+# Year one nurse and behaviorist additional setup hours 
+yr1addrn_md = max(0,rnorm(1,40,10))
+yr1addrn_rn = max(0,rnorm(1,40,10))
+yr1addrn_sh = max(0,rnorm(1,40,10))
+yr1addrn_so = 0
+
+
+
+ 
+# Practice-level data by clinic type
+# Subscripts _fq, _ur, _ru, and _ot correspond to:
+# 
+# _fq = Federally qualified health centers (FQHCs) and their Look-Alikes
+# _ur = Non-FQHC in high-poverty urban zip code (>20% of households below poverty threshold)
+# _ru = Non-FQHC in high-poverty rural zip code (>20% of households below poverty threshold)
+# _ot = Practice in lower-poverty zip code
+
+
+
+# Prevalence of opioid use disorder, %
+prev_fq = max(0,rnorm(1,.013,.002))
+prev_ur = max(0,rnorm(1,.013,.002))
+prev_ru = max(0,rnorm(1,.016,.004))
+prev_ot = max(0,rnorm(1,.008,.003))
+
+# Screening tool sensitivity, %
+sens = 1
+
+# Screening tool specificity, %
+spec = min(1,rnorm(1,.735,.018))
+
+# Proportion of patients accepting therapy when offered, %
+propaccept = min(1,rnorm(1,.8,.025))
+
+
+
+# Practice characteristics
+
+# Panel size, all patients per full-time physician
+panel_fq = max(0,rnorm(1,2040,551))
+panel_ur = max(0,rnorm(1,1480,316))
+panel_ru = max(0,rnorm(1,1760,357))
+panel_ot = max(0,rnorm(1,1620,337))
+
+# Payer prevalence, Medicare, %
+mcare_fq = max(0,rnorm(1,.11,.03))
+mcare_ur = max(0,rnorm(1,.27,.07))
+mcare_ru = max(0,rnorm(1,.20,.05))
+mcare_ot = max(0,rnorm(1,.22,.06))
+
+# Payer prevalence, Medicaid, %
+mcaid_fq = max(0,rnorm(1,.57,.14))
+mcaid_ur = max(0,rnorm(1,.20,.05))
+mcaid_ru = max(0,rnorm(1,.18,.05))
+mcaid_ot = max(0,rnorm(1,.13,.03))
+
+# Payer prevalence, private, %
+priv_fq = max(0,rnorm(1,.1,.03))
+priv_ur = max(0,rnorm(1,.48,.12))
+priv_ru = max(0,rnorm(1,.48,.12))
+priv_ot = max(0,rnorm(1,.60,.15))
+
+# Payer prevalence, self-pay/uninsured, %
+unins_fq = max(0,1-(mcare_fq+mcaid_fq+priv_fq))
+unins_ur = max(0,1-(mcare_ur+mcaid_ur+priv_ur))
+unins_ru = max(0,1-(mcare_ru+mcaid_ru+priv_ru))
+unins_ot = max(0,1-(mcare_ot+mcaid_ot+priv_ot))
+
+# Salary and overhead costs
+
+# Nurse care manager, salary per year, $
+rnsal_fq = max(0,rnorm(1,65683,8624))
+rnsal_ur = max(0,rnorm(1,73101,7418))
+rnsal_ru = max(0,rnorm(1,57059,8624))
+rnsal_ot = max(0,rnorm(1,81724,8623))
+
+# Behaviorist, salary per year, $
+besal_fq = max(0,rnorm(1,50713,9321))
+besal_ur = max(0,rnorm(1,58266,7553))
+besal_ru = max(0,rnorm(1,41392,9321))
+besal_ot = max(0,rnorm(1,67957,9691))
+
+# Overhead rate, %
+overhead = max(0,min(1,rnorm(1,.47,.14)))
+
+# Hours worked per full-time equivalent employee per year
+hrsperyr = max(0,rnorm(1,2087,96))
+
+
+
+# Payments by visit type
+
+# subscripts:
+# _mcare = Medicare
+# _mcaid = Medicaid
+# _priv = Private
+# _unins = Uninsured/Self-pay
+
+
+v99204_mcare = max(0,rnorm(1,158.8,22.8))
+v99204_mcaid = max(0,rnorm(1,106.6,31.4))
+v99204_priv = max(0,rnorm(1,222.7,2.4))
+v99204_unins = max(0,rnorm(1,106.6,31.4))
+
+v99213_mcare = max(0,rnorm(1,68,13.8))
+v99213_mcaid = max(0,rnorm(1,45.5,12.7))
+v99213_priv = max(0,rnorm(1,111.1,.9))
+v99213_unins = max(0,rnorm(1,45.5,12.7))
+
+v99214_mcare = max(0,rnorm(1,101.7,18.2))
+v99214_mcaid = max(0,rnorm(1,68.6,21.2))
+v99214_priv = max(0,rnorm(1,156.7,1.2))
+v99214_unins = max(0,rnorm(1,68.6,21.2))
+
+v99211_mcare = max(0,rnorm(1,17.4,7.6))
+v99211_mcaid = max(0,rnorm(1,10.8,6.2))
+v99211_priv = max(0,rnorm(1,46.8,1.8))
+v99211_unins = max(0,rnorm(1,10.8,6.2))
+
+v90791_mcare = max(0,rnorm(1,142.6,11.7))
+v90791_mcaid = max(0,rnorm(1,73.1,6.0))
+v90791_priv = max(0,rnorm(1,126.4,2.7))
+v90791_unins = max(0,rnorm(1,73.1,6.0))
+
+v90853_mcare = max(0,rnorm(1,28,2.2))
+v90853_mcaid = max(0,rnorm(1,14.4,1.1))
+v90853_priv = max(0,rnorm(1,151.9,21.3))
+v90853_unins = max(0,rnorm(1,14.4,1.1))
+
+v80305_mcare = max(0,rnorm(1,13.5,2.8))
+v80305_mcaid = max(0,rnorm(1,11.9,2.5))
+v80305_priv = max(0,rnorm(1,55,27.3))
+v80305_unins = max(0,rnorm(1,11.9,2.5))
+
+
+
+# Year 1 costs and revenues
+
+# per MD FTE
+# 
+# 
+# _md_yr1 = OBOT-B with physician-led visits
+# _rn_yr1 = OBOT-B with nurse-led visits
+# _sh_yr1 = OBOT-B with shared visits
+# _so_yr1 = OBOT-B with solo provider
+# 
+# _fq_yr1 = Federally qualified health centers (FQHCs) and their Look-Alikes
+# _ur_yr1 = Non-FQHC in high-poverty urban zip code (>20% of households below poverty threshold)
+# _ru_yr1 = Non-FQHC in high-poverty rural zip code (>20% of households below poverty threshold)
+# _ot_yr1 = Practice in lower-poverty zip code
+
+
+
+# at Federally qualified health centers (FQHCs) and their Look-Alikes
+# physician led
+grossrev_md_fq_yr1 = sum(visits_obot_md*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                      mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                      mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                      mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                      mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                      mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                      mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_md)
+
+oppcost_md_fq_yr1 = sum(mdhours_md*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_md) + 
+  sum(yr1addmd_md*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))
+
+addcost_md_fq_yr1 = ((rnhours_md*rnsal_fq*(1/hrsperyr)+behours_md*besal_fq*(1/hrsperyr))*
+                   prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_md)
+                 +(yr1addrn_md/hrsperyr)*(rnsal_fq+besal_fq))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_fq_yr1 = sum(visits_obot_rn*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                      mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                      mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                      mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                      mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                      mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                      mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+oppcost_rn_fq_yr1 = sum(mdhours_rn*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_rn) + 
+  sum(yr1addmd_rn*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))
+
+addcost_rn_fq_yr1 = ((rnhours_rn*rnsal_fq*(1/hrsperyr)+behours_rn*besal_fq*(1/hrsperyr))*
+                   prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_rn)
+                 +(yr1addrn_rn/hrsperyr)*(rnsal_fq+besal_fq))*(1+overhead) 
+
+
+# shared
+grossrev_sh_fq_yr1 = sum(visits_obot_sh*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                      mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                      mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                      mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                      mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                      mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                      mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+oppcost_sh_fq_yr1 = sum(mdhours_sh*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_sh) + 
+  sum(yr1addmd_sh*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))
+
+addcost_sh_fq_yr1 = ((rnhours_sh*rnsal_fq*(1/hrsperyr)+behours_sh*besal_fq*(1/hrsperyr))*
+                   prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_sh)
+                 +(yr1addrn_sh/hrsperyr)*(rnsal_fq+besal_fq))*(1+overhead) 
+
+
+# solo
+grossrev_so_fq_yr1 = sum(visits_obot_so*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                      mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                      mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                      mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                      mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                      mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                      mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+oppcost_so_fq_yr1 = sum(mdhours_so*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_so) + 
+  sum(yr1addmd_so*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))
+
+addcost_so_fq_yr1 = ((rnhours_so*rnsal_fq*(1/hrsperyr)+behours_so*besal_fq*(1/hrsperyr))*
+                   prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_so)
+                 +(yr1addrn_so/hrsperyr)*(rnsal_fq+besal_fq))*(1+overhead) 
+
+
+
+# at urban
+# physician led
+grossrev_md_ur_yr1 = sum(visits_obot_md*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                      mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                      mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                      mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                      mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                      mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                      mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_md)
+
+oppcost_md_ur_yr1 = sum(mdhours_md*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_md) + 
+  sum(yr1addmd_md*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))
+
+addcost_md_ur_yr1 = ((rnhours_md*rnsal_ur*(1/hrsperyr)+behours_md*besal_ur*(1/hrsperyr))*
+                   prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_md)
+                 +(yr1addrn_md/hrsperyr)*(rnsal_ur+besal_ur))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_ur_yr1 = sum(visits_obot_rn*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                      mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                      mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                      mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                      mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                      mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                      mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+oppcost_rn_ur_yr1 = sum(mdhours_rn*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_rn) + 
+  sum(yr1addmd_rn*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))
+
+addcost_rn_ur_yr1 = ((rnhours_rn*rnsal_ur*(1/hrsperyr)+behours_rn*besal_ur*(1/hrsperyr))*
+                   prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_rn)
+                 +(yr1addrn_rn/hrsperyr)*(rnsal_ur+besal_ur))*(1+overhead) 
+
+
+# shared
+grossrev_sh_ur_yr1 = sum(visits_obot_sh*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                      mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                      mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                      mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                      mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                      mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                      mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+oppcost_sh_ur_yr1 = sum(mdhours_sh*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_sh) + 
+  sum(yr1addmd_sh*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))
+
+addcost_sh_ur_yr1 = ((rnhours_sh*rnsal_ur*(1/hrsperyr)+behours_sh*besal_ur*(1/hrsperyr))*
+                   prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_sh)
+                 +(yr1addrn_sh/hrsperyr)*(rnsal_ur+besal_ur))*(1+overhead) 
+
+
+# solo
+grossrev_so_ur_yr1 = sum(visits_obot_so*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                      mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                      mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                      mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                      mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                      mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                      mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+oppcost_so_ur_yr1 = sum(mdhours_so*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_so) + 
+  sum(yr1addmd_so*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))
+
+addcost_so_ur_yr1 = ((rnhours_so*rnsal_ur*(1/hrsperyr)+behours_so*besal_ur*(1/hrsperyr))*
+                   prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_so)
+                 +(yr1addrn_so/hrsperyr)*(rnsal_ur+besal_ur))*(1+overhead) 
+
+
+
+# at rural
+# physician led
+grossrev_md_ru_yr1 = sum(visits_obot_md*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                      mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                      mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                      mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                      mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                      mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                      mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_md)
+
+oppcost_md_ru_yr1 = sum(mdhours_md*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_md) + 
+  sum(yr1addmd_md*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))
+
+addcost_md_ru_yr1 = ((rnhours_md*rnsal_ru*(1/hrsperyr)+behours_md*besal_ru*(1/hrsperyr))*
+                   prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_md)
+                 +(yr1addrn_md/hrsperyr)*(rnsal_ru+besal_ru))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_ru_yr1 = sum(visits_obot_rn*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                      mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                      mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                      mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                      mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                      mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                      mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+oppcost_rn_ru_yr1 = sum(mdhours_rn*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_rn) + 
+  sum(yr1addmd_rn*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))
+
+addcost_rn_ru_yr1 = ((rnhours_rn*rnsal_ru*(1/hrsperyr)+behours_rn*besal_ru*(1/hrsperyr))*
+                   prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_rn)
+                 +(yr1addrn_rn/hrsperyr)*(rnsal_ru+besal_ru))*(1+overhead) 
+
+
+# shared
+grossrev_sh_ru_yr1 = sum(visits_obot_sh*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                      mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                      mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                      mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                      mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                      mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                      mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+oppcost_sh_ru_yr1 = sum(mdhours_sh*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_sh) + 
+  sum(yr1addmd_sh*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))
+
+addcost_sh_ru_yr1 = ((rnhours_sh*rnsal_ru*(1/hrsperyr)+behours_sh*besal_ru*(1/hrsperyr))*
+                   prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_sh)
+                 +(yr1addrn_sh/hrsperyr)*(rnsal_ru+besal_ru))*(1+overhead) 
+
+
+# solo
+grossrev_so_ru_yr1 = sum(visits_obot_so*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                      mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                      mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                      mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                      mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                      mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                      mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+oppcost_so_ru_yr1 = sum(mdhours_so*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_so) + 
+  sum(yr1addmd_so*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))
+
+addcost_so_ru_yr1 = ((rnhours_so*rnsal_ru*(1/hrsperyr)+behours_so*besal_ru*(1/hrsperyr))*
+                   prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_so)
+                 +(yr1addrn_so/hrsperyr)*(rnsal_ru+besal_ru))*(1+overhead) 
+
+
+
+
+# at other
+# physician led
+grossrev_md_ot_yr1 = sum(visits_obot_md*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                      mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                      mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                      mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                      mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                      mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                      mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_md)
+
+oppcost_md_ot_yr1 = sum(mdhours_md*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_md) + 
+  sum(yr1addmd_md*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))
+
+addcost_md_ot_yr1 = ((rnhours_md*rnsal_ot*(1/hrsperyr)+behours_md*besal_ot*(1/hrsperyr))*
+                   prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_md)
+                 +(yr1addrn_md/hrsperyr)*(rnsal_ot+besal_ot))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_ot_yr1 = sum(visits_obot_rn*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                      mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                      mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                      mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                      mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                      mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                      mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+oppcost_rn_ot_yr1 = sum(mdhours_rn*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_rn) + 
+  sum(yr1addmd_rn*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))
+
+addcost_rn_ot_yr1 = ((rnhours_rn*rnsal_ot*(1/hrsperyr)+behours_rn*besal_ot*(1/hrsperyr))*
+                   prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_rn)
+                 +(yr1addrn_rn/hrsperyr)*(rnsal_ot+besal_ot))*(1+overhead) 
+
+
+# shared
+grossrev_sh_ot_yr1 = sum(visits_obot_sh*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                      mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                      mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                      mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                      mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                      mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                      mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+oppcost_sh_ot_yr1 = sum(mdhours_sh*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_sh) + 
+  sum(yr1addmd_sh*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))
+
+addcost_sh_ot_yr1 = ((rnhours_sh*rnsal_ot*(1/hrsperyr)+behours_sh*besal_ot*(1/hrsperyr))*
+                   prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_sh)
+                 +(yr1addrn_sh/hrsperyr)*(rnsal_ot+besal_ot))*(1+overhead) 
+
+
+# solo
+grossrev_so_ot_yr1 = sum(visits_obot_so*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                      mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                      mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                      mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                      mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                      mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                      mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+oppcost_so_ot_yr1 = sum(mdhours_so*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_so) + 
+  sum(yr1addmd_so*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))
+
+addcost_so_ot_yr1 = ((rnhours_so*rnsal_ot*(1/hrsperyr)+behours_so*besal_ot*(1/hrsperyr))*
+                   prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_so)
+                 +(yr1addrn_so/hrsperyr)*(rnsal_ot+besal_ot))*(1+overhead) 
+
+
+
+
+grossrevvec_yr1[i,]=c(grossrev_md_fq_yr1 , grossrev_rn_fq_yr1 , grossrev_sh_fq_yr1 , grossrev_so_fq_yr1 , grossrev_md_ur_yr1 , grossrev_rn_ur_yr1 , grossrev_sh_ur_yr1 , grossrev_so_ur_yr1 , grossrev_md_ru_yr1 , grossrev_rn_ru_yr1 , grossrev_sh_ru_yr1 , grossrev_so_ru_yr1 , grossrev_md_ot_yr1 , grossrev_rn_ot_yr1 , grossrev_sh_ot_yr1 , grossrev_so_ot_yr1)
+
+oppcostvec_yr1[i,]=c(oppcost_md_fq_yr1 , oppcost_rn_fq_yr1 , oppcost_sh_fq_yr1 , oppcost_so_fq_yr1 , oppcost_md_ur_yr1 , oppcost_rn_ur_yr1 , oppcost_sh_ur_yr1 , oppcost_so_ur_yr1 , oppcost_md_ru_yr1 , oppcost_rn_ru_yr1 , oppcost_sh_ru_yr1 , oppcost_so_ru_yr1 , oppcost_md_ot_yr1 , oppcost_rn_ot_yr1 , oppcost_sh_ot_yr1 , oppcost_so_ot_yr1)
+
+addcostvec_yr1[i,]=c(addcost_md_fq_yr1 , addcost_rn_fq_yr1 , addcost_sh_fq_yr1 , addcost_so_fq_yr1 , addcost_md_ur_yr1 , addcost_rn_ur_yr1 , addcost_sh_ur_yr1 , addcost_so_ur_yr1 , addcost_md_ru_yr1 , addcost_rn_ru_yr1 , addcost_sh_ru_yr1 , addcost_so_ru_yr1 , addcost_md_ot_yr1 , addcost_rn_ot_yr1 , addcost_sh_ot_yr1 , addcost_so_ot_yr1)
+
+
+
+# Subsequent year (after year 1) costs and revenues
+
+# per MD FTE
+# 
+# 
+# _md_yrs = OBOT-B with physician-led visits
+# _rn_yrs = OBOT-B with nurse-led visits
+# _sh_yrs = OBOT-B with shared visits
+# _so_yrs = OBOT-B with solo provider
+# 
+# _fq_yrs = Federally qualified health centers (FQHCs) and their Look-Alikes
+# _ur_yrs = Non-FQHC in high-poverty urban zip code (>20% of households below poverty threshold)
+# _ru_yrs = Non-FQHC in high-poverty rural zip code (>20% of households below poverty threshold)
+# _ot_yrs = Practice in lower-poverty zip code
+
+
+
+# at Federally qualified health centers (FQHCs) and their Look-Alikes
+# physician led
+grossrev_md_fq_yrs = sum(visits_obot_md*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                          mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                          mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                          mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                          mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                          mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                          mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_md) 
+
+oppcost_md_fq_yrs = sum(mdhours_md*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_md) 
+
+addcost_md_fq_yrs = ((rnhours_md*rnsal_fq*(1/hrsperyr)+behours_md*besal_fq*(1/hrsperyr))*
+                       prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_md))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_fq_yrs = sum(visits_obot_rn*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                          mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                          mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                          mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                          mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                          mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                          mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_rn) 
+
+
+oppcost_rn_fq_yrs = sum(mdhours_rn*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_rn) 
+
+
+addcost_rn_fq_yrs = ((rnhours_rn*rnsal_fq*(1/hrsperyr)+behours_rn*besal_fq*(1/hrsperyr))*
+                       prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_rn))*(1+overhead) 
+
+
+# shared
+grossrev_sh_fq_yrs = sum(visits_obot_sh*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                          mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                          mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                          mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                          mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                          mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                          mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_sh) 
+
+
+oppcost_sh_fq_yrs = sum(mdhours_sh*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+addcost_sh_fq_yrs = ((rnhours_sh*rnsal_fq*(1/hrsperyr)+behours_sh*besal_fq*(1/hrsperyr))*
+                       prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_sh))*(1+overhead) 
+
+
+# solo
+grossrev_so_fq_yrs = sum(visits_obot_so*c(mcare_fq*v99204_mcare+mcaid_fq*v99204_mcaid+priv_fq*v99204_priv+unins_fq*v99204_unins,
+                                          mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins,
+                                          mcare_fq*v99214_mcare+mcaid_fq*v99214_mcaid+priv_fq*v99214_priv+unins_fq*v99214_unins,
+                                          mcare_fq*v99211_mcare+mcaid_fq*v99211_mcaid+priv_fq*v99211_priv+unins_fq*v99211_unins,
+                                          mcare_fq*v90791_mcare+mcaid_fq*v90791_mcaid+priv_fq*v90791_priv+unins_fq*v90791_unins,
+                                          mcare_fq*v90853_mcare+mcaid_fq*v90853_mcaid+priv_fq*v90853_priv+unins_fq*v90853_unins,
+                                          mcare_fq*v80305_mcare+mcaid_fq*v80305_mcaid+priv_fq*v80305_priv+unins_fq*v80305_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_so) 
+
+
+oppcost_so_fq_yrs = sum(mdhours_so*c(mcare_fq*v99213_mcare+mcaid_fq*v99213_mcaid+priv_fq*v99213_priv+unins_fq*v99213_unins))*
+  prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+addcost_so_fq_yrs = ((rnhours_so*rnsal_fq*(1/hrsperyr)+behours_so*besal_fq*(1/hrsperyr))*
+                       prev_fq*panel_fq*(sens+(1-spec))*propaccept*(1-noshow_so))*(1+overhead) 
+
+
+
+# at urban
+# physician led
+grossrev_md_ur_yrs = sum(visits_obot_md*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                          mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                          mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                          mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                          mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                          mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                          mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_md) 
+
+
+oppcost_md_ur_yrs = sum(mdhours_md*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_md)
+
+addcost_md_ur_yrs = ((rnhours_md*rnsal_ur*(1/hrsperyr)+behours_md*besal_ur*(1/hrsperyr))*
+                       prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_md))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_ur_yrs = sum(visits_obot_rn*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                          mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                          mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                          mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                          mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                          mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                          mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_rn) 
+
+
+oppcost_rn_ur_yrs = sum(mdhours_rn*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+addcost_rn_ur_yrs = ((rnhours_rn*rnsal_ur*(1/hrsperyr)+behours_rn*besal_ur*(1/hrsperyr))*
+                       prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_rn))*(1+overhead) 
+
+
+# shared
+grossrev_sh_ur_yrs = sum(visits_obot_sh*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                          mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                          mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                          mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                          mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                          mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                          mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_sh) 
+
+
+oppcost_sh_ur_yrs = sum(mdhours_sh*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+addcost_sh_ur_yrs = ((rnhours_sh*rnsal_ur*(1/hrsperyr)+behours_sh*besal_ur*(1/hrsperyr))*
+                       prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_sh))*(1+overhead) 
+
+
+# solo
+grossrev_so_ur_yrs = sum(visits_obot_so*c(mcare_ur*v99204_mcare+mcaid_ur*v99204_mcaid+priv_ur*v99204_priv+unins_ur*v99204_unins,
+                                          mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins,
+                                          mcare_ur*v99214_mcare+mcaid_ur*v99214_mcaid+priv_ur*v99214_priv+unins_ur*v99214_unins,
+                                          mcare_ur*v99211_mcare+mcaid_ur*v99211_mcaid+priv_ur*v99211_priv+unins_ur*v99211_unins,
+                                          mcare_ur*v90791_mcare+mcaid_ur*v90791_mcaid+priv_ur*v90791_priv+unins_ur*v90791_unins,
+                                          mcare_ur*v90853_mcare+mcaid_ur*v90853_mcaid+priv_ur*v90853_priv+unins_ur*v90853_unins,
+                                          mcare_ur*v80305_mcare+mcaid_ur*v80305_mcaid+priv_ur*v80305_priv+unins_ur*v80305_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_so) 
+
+
+oppcost_so_ur_yrs = sum(mdhours_so*c(mcare_ur*v99213_mcare+mcaid_ur*v99213_mcaid+priv_ur*v99213_priv+unins_ur*v99213_unins))*
+  prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+addcost_so_ur_yrs = ((rnhours_so*rnsal_ur*(1/hrsperyr)+behours_so*besal_ur*(1/hrsperyr))*
+                       prev_ur*panel_ur*(sens+(1-spec))*propaccept*(1-noshow_so))*(1+overhead) 
+
+
+
+# at rural
+# physician led
+grossrev_md_ru_yrs = sum(visits_obot_md*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                          mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                          mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                          mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                          mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                          mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                          mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_md) 
+
+
+oppcost_md_ru_yrs = sum(mdhours_md*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_md)
+
+addcost_md_ru_yrs = ((rnhours_md*rnsal_ru*(1/hrsperyr)+behours_md*besal_ru*(1/hrsperyr))*
+                       prev_ru*panel_ru*(sens+(1-spec))*propaccept)*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_ru_yrs = sum(visits_obot_rn*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                          mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                          mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                          mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                          mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                          mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                          mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_rn) 
+
+
+oppcost_rn_ru_yrs = sum(mdhours_rn*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+addcost_rn_ru_yrs = ((rnhours_rn*rnsal_ru*(1/hrsperyr)+behours_rn*besal_ru*(1/hrsperyr))*
+                       prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_rn))*(1+overhead) 
+
+
+# shared
+grossrev_sh_ru_yrs = sum(visits_obot_sh*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                          mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                          mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                          mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                          mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                          mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                          mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_sh) 
+
+
+oppcost_sh_ru_yrs = sum(mdhours_sh*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+addcost_sh_ru_yrs = ((rnhours_sh*rnsal_ru*(1/hrsperyr)+behours_sh*besal_ru*(1/hrsperyr))*
+                       prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_sh))*(1+overhead) 
+
+
+# solo
+grossrev_so_ru_yrs = sum(visits_obot_so*c(mcare_ru*v99204_mcare+mcaid_ru*v99204_mcaid+priv_ru*v99204_priv+unins_ru*v99204_unins,
+                                          mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins,
+                                          mcare_ru*v99214_mcare+mcaid_ru*v99214_mcaid+priv_ru*v99214_priv+unins_ru*v99214_unins,
+                                          mcare_ru*v99211_mcare+mcaid_ru*v99211_mcaid+priv_ru*v99211_priv+unins_ru*v99211_unins,
+                                          mcare_ru*v90791_mcare+mcaid_ru*v90791_mcaid+priv_ru*v90791_priv+unins_ru*v90791_unins,
+                                          mcare_ru*v90853_mcare+mcaid_ru*v90853_mcaid+priv_ru*v90853_priv+unins_ru*v90853_unins,
+                                          mcare_ru*v80305_mcare+mcaid_ru*v80305_mcaid+priv_ru*v80305_priv+unins_ru*v80305_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_so) 
+
+
+oppcost_so_ru_yrs = sum(mdhours_so*c(mcare_ru*v99213_mcare+mcaid_ru*v99213_mcaid+priv_ru*v99213_priv+unins_ru*v99213_unins))*
+  prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+addcost_so_ru_yrs = ((rnhours_so*rnsal_ru*(1/hrsperyr)+behours_so*besal_ru*(1/hrsperyr))*
+                       prev_ru*panel_ru*(sens+(1-spec))*propaccept*(1-noshow_so))*(1+overhead) 
+
+
+
+
+# at other
+# physician led
+grossrev_md_ot_yrs = sum(visits_obot_md*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                          mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                          mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                          mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                          mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                          mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                          mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_md) 
+
+
+oppcost_md_ot_yrs = sum(mdhours_md*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_md) 
+
+
+addcost_md_ot_yrs = ((rnhours_md*rnsal_ot*(1/hrsperyr)+behours_md*besal_ot*(1/hrsperyr))*
+                       prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_md))*(1+overhead) 
+
+
+# nurse led
+grossrev_rn_ot_yrs = sum(visits_obot_rn*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                          mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                          mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                          mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                          mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                          mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                          mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_rn) 
+
+
+oppcost_rn_ot_yrs = sum(mdhours_rn*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_rn)
+
+addcost_rn_ot_yrs = ((rnhours_rn*rnsal_ot*(1/hrsperyr)+behours_rn*besal_ot*(1/hrsperyr))*
+                       prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_rn))*(1+overhead) 
+
+
+# shared
+grossrev_sh_ot_yrs = sum(visits_obot_sh*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                          mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                          mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                          mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                          mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                          mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                          mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_sh) 
+
+
+oppcost_sh_ot_yrs = sum(mdhours_sh*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_sh)
+
+addcost_sh_ot_yrs = ((rnhours_sh*rnsal_ot*(1/hrsperyr)+behours_sh*besal_ot*(1/hrsperyr))*
+                       prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_sh))*(1+overhead) 
+
+
+# solo
+grossrev_so_ot_yrs = sum(visits_obot_so*c(mcare_ot*v99204_mcare+mcaid_ot*v99204_mcaid+priv_ot*v99204_priv+unins_ot*v99204_unins,
+                                          mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins,
+                                          mcare_ot*v99214_mcare+mcaid_ot*v99214_mcaid+priv_ot*v99214_priv+unins_ot*v99214_unins,
+                                          mcare_ot*v99211_mcare+mcaid_ot*v99211_mcaid+priv_ot*v99211_priv+unins_ot*v99211_unins,
+                                          mcare_ot*v90791_mcare+mcaid_ot*v90791_mcaid+priv_ot*v90791_priv+unins_ot*v90791_unins,
+                                          mcare_ot*v90853_mcare+mcaid_ot*v90853_mcaid+priv_ot*v90853_priv+unins_ot*v90853_unins,
+                                          mcare_ot*v80305_mcare+mcaid_ot*v80305_mcaid+priv_ot*v80305_priv+unins_ot*v80305_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_so) 
+
+
+oppcost_so_ot_yrs = sum(mdhours_so*c(mcare_ot*v99213_mcare+mcaid_ot*v99213_mcaid+priv_ot*v99213_priv+unins_ot*v99213_unins))*
+  prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_so)
+
+addcost_so_ot_yrs = ((rnhours_so*rnsal_ot*(1/hrsperyr)+behours_so*besal_ot*(1/hrsperyr))*
+                       prev_ot*panel_ot*(sens+(1-spec))*propaccept*(1-noshow_so))*(1+overhead) 
+
+
+
+
+grossrevvec_yrs[i,]=c(grossrev_md_fq_yrs , grossrev_rn_fq_yrs , grossrev_sh_fq_yrs , grossrev_so_fq_yrs , grossrev_md_ur_yrs , grossrev_rn_ur_yrs , grossrev_sh_ur_yrs , grossrev_so_ur_yrs , grossrev_md_ru_yrs , grossrev_rn_ru_yrs , grossrev_sh_ru_yrs , grossrev_so_ru_yrs , grossrev_md_ot_yrs , grossrev_rn_ot_yrs , grossrev_sh_ot_yrs , grossrev_so_ot_yrs)
+
+oppcostvec_yrs[i,]=c(oppcost_md_fq_yrs , oppcost_rn_fq_yrs , oppcost_sh_fq_yrs , oppcost_so_fq_yrs , oppcost_md_ur_yrs , oppcost_rn_ur_yrs , oppcost_sh_ur_yrs , oppcost_so_ur_yrs , oppcost_md_ru_yrs , oppcost_rn_ru_yrs , oppcost_sh_ru_yrs , oppcost_so_ru_yrs , oppcost_md_ot_yrs , oppcost_rn_ot_yrs , oppcost_sh_ot_yrs , oppcost_so_ot_yrs)
+
+addcostvec_yrs[i,]=c(addcost_md_fq_yrs , addcost_rn_fq_yrs , addcost_sh_fq_yrs , addcost_so_fq_yrs , addcost_md_ur_yrs , addcost_rn_ur_yrs , addcost_sh_ur_yrs , addcost_so_ur_yrs , addcost_md_ru_yrs , addcost_rn_ru_yrs , addcost_sh_ru_yrs , addcost_so_ru_yrs , addcost_md_ot_yrs , addcost_rn_ot_yrs , addcost_sh_ot_yrs , addcost_so_ot_yrs)
+
+
+
+}
+
+```
+
+# Output tables
+
+```{r output}
+netrevvec_yr1 = grossrevvec_yr1 - oppcostvec_yr1 - addcostvec_yr1
+
+tab_yr1_means = rbind(colMeans(grossrevvec_yr1),
+                colMeans(oppcostvec_yr1),
+                colMeans(addcostvec_yr1),
+                colMeans(netrevvec_yr1))
+
+tab_yr1_95lo = rbind(colQuantiles(grossrevvec_yr1,probs=c(.025)),
+                     colQuantiles(oppcostvec_yr1,probs=c(.025)),
+                     colQuantiles(addcostvec_yr1,probs=c(.025)),
+                     colQuantiles(netrevvec_yr1,probs=c(.025)))
+
+tab_yr1_95hi = rbind(colQuantiles(grossrevvec_yr1,probs=c(.975)),
+                     colQuantiles(oppcostvec_yr1,probs=c(.975)),
+                     colQuantiles(addcostvec_yr1,probs=c(.975)),
+                     colQuantiles(netrevvec_yr1,probs=c(.975)))
+
+netrevvec_yrs = grossrevvec_yrs - oppcostvec_yrs - addcostvec_yrs
+
+tab_yrs_means = rbind(colMeans(grossrevvec_yrs),
+                      colMeans(oppcostvec_yrs),
+                      colMeans(addcostvec_yrs),
+                      colMeans(netrevvec_yrs))
+
+tab_yrs_95lo = rbind(colQuantiles(grossrevvec_yrs,probs=c(.025)),
+                     colQuantiles(oppcostvec_yrs,probs=c(.025)),
+                     colQuantiles(addcostvec_yrs,probs=c(.025)),
+                     colQuantiles(netrevvec_yrs,probs=c(.025)))
+
+tab_yrs_95hi = rbind(colQuantiles(grossrevvec_yrs,probs=c(.975)),
+                     colQuantiles(oppcostvec_yrs,probs=c(.975)),
+                     colQuantiles(addcostvec_yrs,probs=c(.975)),
+                     colQuantiles(netrevvec_yrs,probs=c(.975)))
+
+outputdf = data.frame(rbind(tab_yr1_means,tab_yr1_95hi,tab_yr1_95hi,
+                      tab_yrs_means,tab_yrs_95lo,tab_yrs_95hi))
+
+write.csv(outputdf, file = "outputdf.csv")
+
+
+```
+
