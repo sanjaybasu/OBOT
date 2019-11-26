@@ -941,7 +941,7 @@ tab_yrs_95hi = rbind(colQuantiles(grossrevvec_yrs,probs=c(.975)),
                      colQuantiles(addcostvec_yrs,probs=c(.975)),
                      colQuantiles(netrevvec_yrs,probs=c(.975)))
 
-outputdf = data.frame(rbind(tab_yr1_means,tab_yr1_95hi,tab_yr1_95hi,
+outputdf = data.frame(rbind(tab_yr1_means,tab_yr1_95lo,tab_yr1_95hi,
                       tab_yrs_means,tab_yrs_95lo,tab_yrs_95hi))
 
 write.csv(outputdf, file = "outputdf.csv")
